@@ -69,8 +69,8 @@ class Scheduler:
             logger.error(f'Scheduled task {name} failed', err=e)
 
     def fetch_tenants(self):
-        """Fetch all tenant IDs from the central database."""
-        rows = query('SELECT tenant_id FROM tenant_configs')
+        """Fetch all active tenant IDs from the central database."""
+        rows = query("SELECT tenant_id FROM tenants WHERE status = 'Active'")
         return [row['tenant_id'] for row in rows]
 
     def run_service_reminders(self):

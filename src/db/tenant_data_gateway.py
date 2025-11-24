@@ -12,24 +12,18 @@ tenant_db_pools = {}
 
 
 def get_tenant_config(tenant_id):
-    """Fetch tenant configuration from central DB with caching."""
+    """
+    Fetch tenant configuration from central DB with caching.
+
+    Reads configuration from the tenants table's settings JSONB field.
+    """
     if tenant_id in tenant_config_cache:
         return tenant_config_cache[tenant_id]
 
     query_text = """
         SELECT tenant_id,
-               twilio_sid,
-               twilio_auth_token,
-               twilio_from_number,
-               sendgrid_key,
-               sendgrid_from,
-               email_provider,
-               resend_key,
-               resend_from,
-               quiet_hours_start,
-               quiet_hours_end,
-               dms_connection_string
-        FROM tenant_configs
+               settings
+        FROM tenants
         WHERE tenant_id = %s
     """
 
@@ -39,23 +33,48 @@ def get_tenant_config(tenant_id):
         raise Exception(f'Missing tenant config for tenant {tenant_id}')
 
     row = rows[0]
+    settings = row['settings'] if isinstance(row['settings'], dict) else {}
+
+    # Build config from settings JSONB field
     config = {
         'tenant_id': tenant_id,
-        'twilio_sid': row['twilio_sid'],
-        'twilio_auth_token': row['twilio_auth_token'],
-        'twilio_from_number': row['twilio_from_number'],
-        'sendgrid_key': row['sendgrid_key'],
-        'sendgrid_from': row.get('sendgrid_from'),
-        'email_provider': row.get('email_provider'),
-        'resend_key': row.get('resend_key'),
-        'resend_from': row.get('resend_from'),
-        'quiet_hours_start': row['quiet_hours_start'],
-        'quiet_hours_end': row['quiet_hours_end'],
-        'dms_connection_string': row['dms_connection_string']
+
+        # SMS Configuration (Twilio)
+        'twilio_sid': settings.get('twilio_sid'),
+        'twilio_auth_token': settings.get('twilio_auth_token'),
+        'twilio_from_number': settings.get('twilio_from_number'),
+
+        # Email Configuration
+        'sendgrid_key': settings.get('sendgrid_key'),
+        'sendgrid_from': settings.get('sendgrid_from'),
+        'email_provider': settings.get('email_provider'),
+        'resend_key': settings.get('resend_key'),
+        'resend_from': settings.get('resend_from'),
+
+        # Operational Settings
+        'quiet_hours_start': settings.get('quiet_hours_start'),
+        'quiet_hours_end': settings.get('quiet_hours_end'),
+
+        # DMS Connection (from settings or construct from DB credentials)
+        'dms_connection_string': settings.get('dms_connection_string') or _build_dms_connection(settings)
     }
 
     tenant_config_cache[tenant_id] = config
     return config
+
+
+def _build_dms_connection(settings):
+    """Build DMS connection string from individual database settings."""
+    db_host = settings.get('DatabaseHost', 'localhost')
+    db_port = settings.get('DatabasePort', 5432)
+    db_name = settings.get('DatabaseName')
+    db_user = settings.get('DatabaseUser', 'postgres')
+    db_password = settings.get('DatabasePassword', '')
+
+    if db_name:
+        return f'postgres://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
+
+    return None
 
 
 def get_tenant_db_pool(tenant_id):
