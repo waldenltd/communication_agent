@@ -6,6 +6,7 @@ Concrete implementation of the EmailAdapter for Resend.
 
 from typing import Dict, Any
 import requests
+import base64
 from src.providers.email_adapter import EmailAdapter, EmailMessage, EmailResponse
 from src import logger
 
@@ -64,6 +65,17 @@ class ResendAdapter(EmailAdapter):
             # Add reply-to
             if message.reply_to:
                 payload['reply_to'] = message.reply_to
+
+            # Add attachments
+            if message.attachments:
+                payload['attachments'] = []
+                for attachment in message.attachments:
+                    # Base64 encode the content
+                    encoded_content = base64.b64encode(attachment.content).decode('utf-8')
+                    payload['attachments'].append({
+                        'filename': attachment.filename,
+                        'content': encoded_content
+                    })
 
             # Send via Resend API
             logger.debug(f'Sending email via Resend to {message.to}')

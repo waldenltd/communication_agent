@@ -6,8 +6,8 @@ knowing which adapter is being used. It handles adapter selection
 and provides a clean API for the rest of the application.
 """
 
-from typing import Dict, Any, Optional
-from src.providers.email_adapter import EmailAdapter, EmailMessage, EmailResponse
+from typing import Dict, Any, Optional, List
+from src.providers.email_adapter import EmailAdapter, EmailMessage, EmailResponse, EmailAttachment
 from src.providers.sendgrid_adapter import SendGridAdapter
 from src.providers.resend_adapter import ResendAdapter
 from src import logger
@@ -70,7 +70,8 @@ class EmailService:
         html_body: Optional[str] = None,
         reply_to: Optional[str] = None,
         cc: Optional[list[str]] = None,
-        bcc: Optional[list[str]] = None
+        bcc: Optional[list[str]] = None,
+        attachments: Optional[List[EmailAttachment]] = None
     ) -> EmailResponse:
         """
         Send an email using the configured provider.
@@ -85,6 +86,7 @@ class EmailService:
             reply_to: Optional reply-to address
             cc: Optional CC recipients
             bcc: Optional BCC recipients
+            attachments: Optional list of email attachments
 
         Returns:
             EmailResponse with send result
@@ -97,7 +99,8 @@ class EmailService:
             html_body=html_body,
             reply_to=reply_to,
             cc=cc,
-            bcc=bcc
+            bcc=bcc,
+            attachments=attachments
         )
 
         logger.info(

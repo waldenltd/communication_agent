@@ -6,8 +6,16 @@ making it easy to switch between vendors like SendGrid, Resend, etc.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
+
+
+@dataclass
+class EmailAttachment:
+    """Email attachment with content and metadata."""
+    filename: str
+    content: bytes
+    content_type: str = 'application/pdf'
 
 
 @dataclass
@@ -21,6 +29,7 @@ class EmailMessage:
     reply_to: Optional[str] = None
     cc: Optional[list[str]] = None
     bcc: Optional[list[str]] = None
+    attachments: Optional[List[EmailAttachment]] = None
 
 
 @dataclass

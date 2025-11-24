@@ -14,6 +14,8 @@ os.environ['CENTRAL_DB_URL'] = os.getenv('CENTRAL_DB_URL')
 
 from src.db.tenant_data_gateway import get_tenant_config
 from src.providers.email_service import create_email_service
+from src.providers.email_adapter import EmailAttachment
+from src.utils.pdf_fetcher import fetch_work_order_pdf
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
@@ -102,16 +104,44 @@ Thank you for your business!
 This is a test email from the Communication Agent
 """
 
+    # Fetch PDF attachment for work_order_receipt events
+    attachments = None
+    if queue_item['event_type'] == 'work_order_receipt':
+        work_order_id = params.get('work_order_id')
+        api_base_url = config.get('api_base_url')
+
+        if work_order_id and api_base_url:
+            print(f"Fetching PDF for work order: {work_order_id}...")
+            pdf_content = fetch_work_order_pdf(work_order_id, api_base_url)
+
+            if pdf_content:
+                print(f"✅ PDF fetched successfully ({len(pdf_content)} bytes)")
+                attachments = [EmailAttachment(
+                    filename=f"work_order_{work_order_number}.pdf",
+                    content=pdf_content,
+                    content_type='application/pdf'
+                )]
+            else:
+                print("⚠️  PDF fetch failed, sending email without attachment")
+        else:
+            if not work_order_id:
+                print("⚠️  No work_order_id in message_params")
+            if not api_base_url:
+                print("⚠️  No api_base_url in tenant config")
+
     # Send the email
     print(f"Sending email to: {to_email}...")
     print(f"Subject: {queue_item['subject']}")
+    if attachments:
+        print(f"Attachments: {len(attachments)} file(s)")
     print()
 
     response = service.send_email(
         to=to_email,
         subject=queue_item['subject'],
         body=email_body,
-        config=config
+        config=config,
+        attachments=attachments
     )
 
     if response.success:
@@ -129,10 +159,10 @@ This is a test email from the Communication Agent
             SET status = 'sent',
                 sent_at = NOW(),
                 external_message_id = %s,
-                external_status = 'sent',
+                external_status = %s::jsonb,
                 updated_at = NOW()
             WHERE id = %s
-        """, (response.message_id, queue_item['id']))
+        """, (response.message_id, json.dumps({'status': 'sent'}), queue_item['id']))
         conn.commit()
 
         print("✅ Queue item updated to 'sent' status")
@@ -150,12 +180,12 @@ This is a test email from the Communication Agent
         cur.execute("""
             UPDATE communication_queue
             SET status = 'failed',
-                error_details = %s,
+                error_details = %s::jsonb,
                 retry_count = retry_count + 1,
                 last_retry_at = NOW(),
                 updated_at = NOW()
             WHERE id = %s
-        """, (response.error, queue_item['id']))
+        """, (json.dumps({'error': response.error}), queue_item['id']))
         conn.commit()
 
         print("❌ Queue item updated to 'failed' status")

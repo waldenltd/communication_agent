@@ -55,6 +55,9 @@ def get_tenant_config(tenant_id):
         'quiet_hours_start': settings.get('quiet_hours_start'),
         'quiet_hours_end': settings.get('quiet_hours_end'),
 
+        # API Configuration
+        'api_base_url': settings.get('api_base_url'),
+
         # DMS Connection (from settings or construct from DB credentials)
         'dms_connection_string': settings.get('dms_connection_string') or _build_dms_connection(settings)
     }
