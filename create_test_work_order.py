@@ -41,14 +41,12 @@ print(f"Tenant UUID: {tenant_uuid}")
 print()
 
 # Test data
-work_order_id = "12345"
-work_order_number = "WO-12345"
+work_order_number = "12345"  # This is the work order number used in the API call
 customer_name = "Test Customer"
 customer_email = "scottgriswold@waldenltd.com"
 
 # Build message params
 message_params = {
-    'work_order_id': work_order_id,
     'work_order_number': work_order_number,
     'customer_name': customer_name
 }
@@ -63,7 +61,6 @@ print("Test Data:")
 print("-" * 70)
 print(f"  Event Type:       work_order_receipt")
 print(f"  Recipient:        {customer_email}")
-print(f"  Work Order ID:    {work_order_id}")
 print(f"  Work Order #:     {work_order_number}")
 print(f"  Customer:         {customer_name}")
 print()

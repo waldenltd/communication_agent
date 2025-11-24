@@ -107,7 +107,8 @@ This is a test email from the Communication Agent
     # Fetch PDF attachment for work_order_receipt events
     attachments = None
     if queue_item['event_type'] == 'work_order_receipt':
-        work_order_id = params.get('work_order_id')
+        # Use work_order_number as the ID for the API call
+        work_order_id = params.get('work_order_number')
         api_base_url = config.get('api_base_url')
 
         if work_order_id and api_base_url:
@@ -125,7 +126,7 @@ This is a test email from the Communication Agent
                 print("⚠️  PDF fetch failed, sending email without attachment")
         else:
             if not work_order_id:
-                print("⚠️  No work_order_id in message_params")
+                print("⚠️  No work_order_number in message_params")
             if not api_base_url:
                 print("⚠️  No api_base_url in tenant config")
 

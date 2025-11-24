@@ -6,8 +6,8 @@ This guide explains how to set up and test PDF attachments for work_order_receip
 
 The communication agent now supports attaching PDFs to emails. For `work_order_receipt` event types, the system will:
 
-1. Extract the `work_order_id` from `message_params`
-2. Call the API endpoint: `/api/serviceorder/{workOrderId}/pdf`
+1. Extract the `work_order_number` from `message_params`
+2. Call the API endpoint: `/api/serviceorder/{workOrderNumber}/pdf`
 3. Attach the PDF to the email with filename: `work_order_{number}.pdf`
 4. Send the email via Resend (or other configured provider)
 
@@ -92,15 +92,14 @@ For work_order_receipt events, the `message_params` should include:
 
 ```json
 {
-  "work_order_id": "12345",
-  "work_order_number": "WO-151371",
-  "customer_name": "John Doe"
+  "work_order_number": "151371",
+  "customer_name": "SCOTT GRISWOLD"
 }
 ```
 
-The `work_order_id` is used to fetch the PDF from:
+The `work_order_number` is used to fetch the PDF from:
 ```
-{api_base_url}/api/serviceorder/{work_order_id}/pdf
+{api_base_url}/api/serviceorder/{work_order_number}/pdf
 ```
 
 ## API Endpoint Requirements
@@ -120,7 +119,7 @@ The PDF endpoint should:
 
 The system handles errors gracefully:
 
-1. **Missing work_order_id**: Logs warning, sends email without attachment
+1. **Missing work_order_number**: Logs warning, sends email without attachment
 2. **Missing api_base_url**: Logs warning, sends email without attachment
 3. **PDF fetch fails**: Logs error, sends email without attachment
 4. **PDF API returns 404**: Logs warning, sends email without attachment
@@ -145,8 +144,8 @@ The system logs the following:
 - [ ] Run send_test_email_from_queue.py
 - [ ] Check logs for PDF fetch success
 - [ ] Verify email received with PDF attachment
-- [ ] Test with missing work_order_id (should send without attachment)
-- [ ] Test with invalid work_order_id (should send without attachment)
+- [ ] Test with missing work_order_number (should send without attachment)
+- [ ] Test with invalid work_order_number (should send without attachment)
 - [ ] Test with API timeout (should send without attachment)
 
 ## Production Integration
@@ -171,12 +170,13 @@ config = get_tenant_config('yearround')
 
 # For work_order_receipt events
 if event_type == 'work_order_receipt':
-    work_order_id = message_params.get('work_order_id')
+    work_order_number = message_params.get('work_order_number')
+    customer_name = message_params.get('customer_name')
     api_base_url = config.get('api_base_url')
 
     attachments = None
-    if work_order_id and api_base_url:
-        pdf_content = fetch_work_order_pdf(work_order_id, api_base_url)
+    if work_order_number and api_base_url:
+        pdf_content = fetch_work_order_pdf(work_order_number, api_base_url)
         if pdf_content:
             attachments = [EmailAttachment(
                 filename=f"work_order_{work_order_number}.pdf",
@@ -200,8 +200,8 @@ if event_type == 'work_order_receipt':
 ### PDF not attaching
 
 1. Check api_base_url is configured: `SELECT settings->>'api_base_url' FROM tenants WHERE tenant_id = 'yearround'`
-2. Check work_order_id is in message_params
-3. Test the API endpoint directly: `curl {api_base_url}/api/serviceorder/{work_order_id}/pdf`
+2. Check work_order_number is in message_params
+3. Test the API endpoint directly: `curl {api_base_url}/api/serviceorder/{work_order_number}/pdf`
 4. Check logs for error messages
 
 ### Email not sending
