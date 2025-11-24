@@ -22,6 +22,10 @@ def get_tenant_config(tenant_id):
                twilio_auth_token,
                twilio_from_number,
                sendgrid_key,
+               sendgrid_from,
+               email_provider,
+               resend_key,
+               resend_from,
                quiet_hours_start,
                quiet_hours_end,
                dms_connection_string
@@ -41,6 +45,10 @@ def get_tenant_config(tenant_id):
         'twilio_auth_token': row['twilio_auth_token'],
         'twilio_from_number': row['twilio_from_number'],
         'sendgrid_key': row['sendgrid_key'],
+        'sendgrid_from': row.get('sendgrid_from'),
+        'email_provider': row.get('email_provider'),
+        'resend_key': row.get('resend_key'),
+        'resend_from': row.get('resend_from'),
         'quiet_hours_start': row['quiet_hours_start'],
         'quiet_hours_end': row['quiet_hours_end'],
         'dms_connection_string': row['dms_connection_string']
