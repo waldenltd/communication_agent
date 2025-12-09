@@ -42,5 +42,14 @@ SCHEDULER_CONFIG = {
     'appointment_confirmation_interval_ms': _number_from_env(
         'APPOINTMENT_CONFIRMATION_INTERVAL_MS',
         60 * 60 * 1000  # 1 hour
+    ),
+    'queue_processor_interval_ms': _number_from_env(
+        'QUEUE_PROCESSOR_INTERVAL_MS',
+        30 * 1000  # 30 seconds
     )
 }
+
+# DeepSeek AI Configuration (OpenAI-compatible API)
+DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
+DEEPSEEK_BASE_URL = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
+DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')

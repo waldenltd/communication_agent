@@ -58,6 +58,9 @@ def get_tenant_config(tenant_id):
         # API Configuration
         'api_base_url': settings.get('api_base_url'),
 
+        # Company Info
+        'company_name': settings.get('company_name'),
+
         # DMS Connection (from settings or construct from DB credentials)
         'dms_connection_string': settings.get('dms_connection_string') or _build_dms_connection(settings)
     }
@@ -198,6 +201,27 @@ def find_past_due_invoices(tenant_id):
           AND i.balance > 0
     """
     return query_tenant_db(tenant_id, query_text)
+
+
+def fetch_work_order_equipment(tenant_id, work_order_number):
+    """
+    Fetch equipment information for a work order from tenant's DMS database.
+
+    Returns equipment details like model, serial number, and service info.
+    """
+    query_text = """
+        SELECT wo.work_order_number,
+               wo.description AS service_description,
+               e.model AS equipment_model,
+               e.serial_number,
+               e.year,
+               e.manufacturer
+        FROM work_orders wo
+        LEFT JOIN equipment e ON e.id = wo.equipment_id
+        WHERE wo.work_order_number = %s
+    """
+    rows = query_tenant_db(tenant_id, query_text, [work_order_number])
+    return rows[0] if rows else None
 
 
 def shutdown_tenant_pools():

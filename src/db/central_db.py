@@ -28,6 +28,18 @@ def query(text, params=None):
         connection_pool.putconn(conn)
 
 
+def execute(text, params=None):
+    """Execute a statement (INSERT, UPDATE, DELETE) and commit."""
+    conn = connection_pool.getconn()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(text, params or [])
+            conn.commit()
+            return cursor.rowcount
+    finally:
+        connection_pool.putconn(conn)
+
+
 @contextmanager
 def with_transaction():
     """Context manager for database transactions."""

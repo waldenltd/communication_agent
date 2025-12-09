@@ -10,6 +10,7 @@ from src.db.tenant_data_gateway import (
     find_past_due_invoices
 )
 from src.jobs.job_repository import insert_job
+from src.jobs.handlers.process_queue import process_communication_queue
 
 
 class Scheduler:
@@ -38,6 +39,11 @@ class Scheduler:
             'invoice-reminders',
             config.SCHEDULER_CONFIG['invoice_reminder_interval_ms'],
             self.run_invoice_reminders
+        )
+        self.schedule_recurring_task(
+            'communication-queue-processor',
+            config.SCHEDULER_CONFIG.get('queue_processor_interval_ms', 30000),  # 30 seconds default
+            self.run_queue_processor
         )
 
     def stop(self):
@@ -177,3 +183,15 @@ class Scheduler:
                 )
 
         logger.info('Invoice reminder sweep completed')
+
+    def run_queue_processor(self):
+        """Process pending items from the communication_queue with AI-generated content."""
+        tenants = self.fetch_tenants()
+        total_processed = 0
+
+        for tenant_id in tenants:
+            processed = process_communication_queue(tenant_id)
+            total_processed += processed
+
+        if total_processed > 0:
+            logger.info('Communication queue processing completed', processed=total_processed)
