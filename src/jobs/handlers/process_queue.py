@@ -145,7 +145,7 @@ def process_queue_item(item: dict):
 
     # Fetch attachments if applicable
     attachments = None
-    if event_type == 'work_order_receipt':
+    if event_type in ('work_order_receipt', 'sales_order_receipt'):
         attachments = fetch_attachments_for_work_order(item, config, message_params)
 
     # Create email service and send

@@ -28,6 +28,16 @@ Keep it to one or two sentences plus the sign-off.""",
         'default_subject': 'Your Work Order Receipt'
     },
 
+    'sales_order_receipt': {
+        'system': """You work for a power equipment sales and service company.
+Write a brief email receipt for a sales order.
+Simply thank them for their purchase and reference the sales order number.
+Do NOT mention delivery status or shipping details unless provided.
+End with "Best regards," followed by the company name on the next line.
+Keep it to one or two sentences plus the sign-off.""",
+        'default_subject': 'Your Sales Order Receipt'
+    },
+
     'service_reminder': {
         'system': """You are a helpful customer service representative for an HVAC/home services company.
 Write a friendly reminder email about scheduling a maintenance service.
@@ -226,6 +236,19 @@ def generate_fallback_content(event_type: str, message_params: dict, recipient_a
 Thank you for your business. This email confirms receipt of your work order.
 
 Work Order Number: {work_order}
+
+If you have any questions, please don't hesitate to contact us.
+
+Best regards,
+Your Service Team"""
+
+    elif event_type == 'sales_order_receipt':
+        sales_order = message_params.get('work_order_number', message_params.get('sales_order_number', 'N/A'))
+        body = f"""Hello {customer_name},
+
+Thank you for your purchase. This email confirms receipt of your sales order.
+
+Sales Order Number: {sales_order}
 
 If you have any questions, please don't hesitate to contact us.
 
