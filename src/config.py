@@ -2,12 +2,17 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables from ENV_FILE if specified
+# Load environment variables from ENV_FILE if specified, or .env.local, or .env
 env_file = os.getenv('ENV_FILE')
 if env_file:
     load_dotenv(Path(env_file))
 else:
-    load_dotenv()
+    # Try .env.local first, then fall back to .env
+    env_local = Path(__file__).parent.parent / '.env.local'
+    if env_local.exists():
+        load_dotenv(env_local)
+    else:
+        load_dotenv()
 
 
 def _number_from_env(key: str, fallback: int) -> int:

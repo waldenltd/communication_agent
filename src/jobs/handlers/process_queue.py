@@ -15,7 +15,7 @@ from src.db.tenant_data_gateway import get_tenant_config, fetch_work_order_equip
 from src.providers.email_service import create_email_service
 from src.providers.email_adapter import EmailAttachment
 from src.providers.ai_content_generator import generate_email_content
-from src.utils.pdf_fetcher import fetch_work_order_pdf
+from src.utils.pdf_fetcher import fetch_work_order_pdf, fetch_sales_receipt_pdf
 
 
 def process_communication_queue(tenant_id: str, limit: int = 10):
@@ -187,15 +187,16 @@ def fetch_attachments_for_work_order(item: dict, config: dict, message_params: d
         return None
 
     logger.info(
-        'Fetching PDF attachment',
+        'Fetching sales receipt PDF attachment',
         work_order_number=work_order_number
     )
 
-    pdf_content = fetch_work_order_pdf(work_order_number, api_base_url)
+    # Use sales receipt endpoint
+    pdf_content = fetch_sales_receipt_pdf(work_order_number, api_base_url)
 
     if pdf_content:
         return [EmailAttachment(
-            filename=f'work_order_{work_order_number}.pdf',
+            filename=f'sales_receipt_{work_order_number}.pdf',
             content=pdf_content,
             content_type='application/pdf'
         )]
