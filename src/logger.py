@@ -3,6 +3,8 @@ import os
 import sys
 from datetime import datetime
 import json
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 
 class JSONFormatter(logging.Formatter):
@@ -31,14 +33,28 @@ class JSONFormatter(logging.Formatter):
         return json.dumps(log_data)
 
 
+# Ensure logs directory exists
+logs_dir = Path(__file__).parent.parent / 'logs'
+logs_dir.mkdir(exist_ok=True)
+log_file_path = logs_dir / 'app.log'
+
 # Configure the logger
 logger = logging.getLogger('communication-agent')
 logger.setLevel(os.getenv('LOG_LEVEL', 'INFO').upper())
 
 # Create console handler with JSON formatter
-handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(JSONFormatter())
-logger.addHandler(handler)
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(JSONFormatter())
+logger.addHandler(console_handler)
+
+# Create file handler with rotation (10MB max, keep 5 backups)
+file_handler = RotatingFileHandler(
+    log_file_path,
+    maxBytes=10 * 1024 * 1024,  # 10MB
+    backupCount=5
+)
+file_handler.setFormatter(JSONFormatter())
+logger.addHandler(file_handler)
 
 # Prevent propagation to root logger
 logger.propagate = False
