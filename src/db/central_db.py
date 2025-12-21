@@ -1,52 +1,47 @@
-import psycopg2
-from psycopg2 import pool
-from psycopg2.extras import RealDictCursor
+import psycopg
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 from contextlib import contextmanager
 from src import config
 from src import logger
 
 
 # Create connection pool
-connection_pool = pool.ThreadedConnectionPool(
-    minconn=1,
-    maxconn=25,
-    dsn=config.CENTRAL_DB_URL
+connection_pool = ConnectionPool(
+    conninfo=config.CENTRAL_DB_URL,
+    min_size=1,
+    max_size=25
 )
 
 
 def query(text, params=None):
     """Execute a query and return results as list of dicts."""
-    conn = connection_pool.getconn()
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+    with connection_pool.connection() as conn:
+        conn.row_factory = dict_row
+        with conn.cursor() as cursor:
             cursor.execute(text, params or [])
             if cursor.description:
                 return cursor.fetchall()
             conn.commit()
             return []
-    finally:
-        connection_pool.putconn(conn)
 
 
 def execute(text, params=None):
     """Execute a statement (INSERT, UPDATE, DELETE) and commit."""
-    conn = connection_pool.getconn()
-    try:
+    with connection_pool.connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(text, params or [])
             conn.commit()
             return cursor.rowcount
-    finally:
-        connection_pool.putconn(conn)
 
 
 @contextmanager
 def with_transaction():
     """Context manager for database transactions."""
-    conn = connection_pool.getconn()
-    try:
+    with connection_pool.connection() as conn:
+        conn.row_factory = dict_row
         conn.autocommit = False
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor = conn.cursor()
 
         class TransactionClient:
             def __init__(self, cursor, conn):
@@ -60,20 +55,19 @@ def with_transaction():
                 return []
 
         client = TransactionClient(cursor, conn)
-        yield client
-
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        raise e
-    finally:
-        cursor.close()
-        connection_pool.putconn(conn)
+        try:
+            yield client
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            cursor.close()
 
 
 def shutdown_pool():
     """Close all connections in the pool."""
     try:
-        connection_pool.closeall()
+        connection_pool.close()
     except Exception as e:
         logger.error('Failed to close central DB pool', err=e)
