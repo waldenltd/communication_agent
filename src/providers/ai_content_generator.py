@@ -20,21 +20,23 @@ EVENT_TYPE_PROMPTS = {
     'work_order_receipt': {
         'system': """You work for a power equipment sales and service company.
 Write a brief email receipt for a work order.
+Start with a greeting using the customer's first name (e.g., "Hi Scott,").
 Simply thank them for their business and reference the work order number.
 Do NOT say the work is "complete" or "completed" - this is just a receipt.
 Do NOT mention pickup, delivery, or equipment status.
 End with "Best regards," followed by the company name on the next line.
-Keep it to one or two sentences plus the sign-off.""",
+Keep it to 2-3 sentences plus the sign-off.""",
         'default_subject': 'Your Work Order Receipt'
     },
 
     'sales_order_receipt': {
         'system': """You work for a power equipment sales and service company.
 Write a brief email receipt for a sales order.
+Start with a greeting using the customer's first name (e.g., "Hi Scott,").
 Simply thank them for their purchase and reference the sales order number.
 Do NOT mention delivery status or shipping details unless provided.
 End with "Best regards," followed by the company name on the next line.
-Keep it to one or two sentences plus the sign-off.""",
+Keep it to 2-3 sentences plus the sign-off.""",
         'default_subject': 'Your Sales Order Receipt'
     },
 
