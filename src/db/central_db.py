@@ -21,7 +21,9 @@ def query(text, params=None):
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute(text, params or [])
             if cursor.description:
-                return cursor.fetchall()
+                results = cursor.fetchall()
+                conn.commit()  # Commit for INSERT...RETURNING, UPDATE...RETURNING, etc.
+                return results
             conn.commit()
             return []
     finally:
