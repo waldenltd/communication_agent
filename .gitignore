@@ -48,3 +48,8 @@ Thumbs.db
 # Logs
 logs/
 *.log
+
+# NSSM Windows Service Manager
+nssm/
+nssm.zip
+lib/

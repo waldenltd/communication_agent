@@ -1,6 +1,6 @@
-import psycopg2
-from psycopg2 import pool
-from psycopg2.extras import RealDictCursor
+import psycopg
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 from src.db.central_db import query as central_query
 from src import logger
 
@@ -94,10 +94,10 @@ def get_tenant_db_pool(tenant_id):
             f'Tenant {tenant_id} does not expose a DMS connection string.'
         )
 
-    tenant_pool = pool.ThreadedConnectionPool(
-        minconn=1,
-        maxconn=15,
-        dsn=tenant_config['dms_connection_string']
+    tenant_pool = ConnectionPool(
+        conninfo=tenant_config['dms_connection_string'],
+        min_size=1,
+        max_size=15
     )
 
     tenant_db_pools[tenant_id] = tenant_pool
@@ -107,15 +107,13 @@ def get_tenant_db_pool(tenant_id):
 def query_tenant_db(tenant_id, query_text, params=None):
     """Execute a query against a tenant's database."""
     tenant_pool = get_tenant_db_pool(tenant_id)
-    conn = tenant_pool.getconn()
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+    with tenant_pool.connection() as conn:
+        conn.row_factory = dict_row
+        with conn.cursor() as cursor:
             cursor.execute(query_text, params or [])
             if cursor.description:
                 return cursor.fetchall()
             return []
-    finally:
-        tenant_pool.putconn(conn)
 
 
 def fetch_tenant_customer_contact(tenant_id, customer_id):
@@ -228,6 +226,6 @@ def shutdown_tenant_pools():
     """Close all tenant database connection pools."""
     for tenant_pool in tenant_db_pools.values():
         try:
-            tenant_pool.closeall()
+            tenant_pool.close()
         except Exception as e:
             logger.error('Failed to close tenant pool', err=e)
