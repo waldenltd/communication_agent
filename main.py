@@ -78,24 +78,35 @@ def run_legacy_mode(health_port: int = 8080):
 def run_level2_agent(health_port: int = 8080):
     """Run the Level 2 Agent orchestrator."""
     from src.agent import start_orchestrator, stop_orchestrator, get_orchestrator
+    from src.agent.agent_scheduler import start_agent_scheduler, stop_agent_scheduler
 
     logger.info('Starting Communication Agent (Level 2 Agent mode)')
 
     start_orchestrator()
+    start_agent_scheduler()
     orchestrator = get_orchestrator()
 
-    # Start health server with agent status
+    # Start health server with agent status and metrics
     if health_port > 0:
         def get_status():
             status = orchestrator.get_status()
             status["mode"] = "level2"
             return status
-        start_health_server(port=health_port, status_provider=get_status)
+
+        def get_metrics():
+            return orchestrator.get_prometheus_metrics()
+
+        start_health_server(
+            port=health_port,
+            status_provider=get_status,
+            metrics_provider=get_metrics,
+        )
 
     def shutdown(signum, frame):
         """Graceful shutdown handler."""
         logger.info('Shutting down Level 2 Agent', signal=signum)
 
+        stop_agent_scheduler()
         stop_orchestrator()
         stop_health_server()
 
@@ -140,7 +151,7 @@ def run_hybrid_mode(health_port: int = 8080):
     start_orchestrator()
     orchestrator = get_orchestrator()
 
-    # Start health server with combined status
+    # Start health server with combined status and metrics
     if health_port > 0:
         def get_status():
             agent_status = orchestrator.get_status()
@@ -152,7 +163,15 @@ def run_hybrid_mode(health_port: int = 8080):
                 },
                 "agent": agent_status,
             }
-        start_health_server(port=health_port, status_provider=get_status)
+
+        def get_metrics():
+            return orchestrator.get_prometheus_metrics()
+
+        start_health_server(
+            port=health_port,
+            status_provider=get_status,
+            metrics_provider=get_metrics,
+        )
 
     def shutdown(signum, frame):
         """Graceful shutdown handler."""

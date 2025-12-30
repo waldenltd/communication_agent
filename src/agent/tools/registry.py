@@ -26,13 +26,21 @@ class ToolRegistry:
             cat: [] for cat in ToolCategory
         }
 
-    def register(self, tool: Tool) -> None:
+    def register(self, tool: Tool, replace: bool = False) -> None:
         """Register a tool in the registry."""
         if tool.name in self._tools:
-            raise ValueError(f"Tool '{tool.name}' already registered")
+            if replace:
+                # Remove from category list before replacing
+                old_tool = self._tools[tool.name]
+                if tool.name in self._by_category[old_tool.category]:
+                    self._by_category[old_tool.category].remove(tool.name)
+            else:
+                # Already registered, skip silently (idempotent)
+                return
 
         self._tools[tool.name] = tool
-        self._by_category[tool.category].append(tool.name)
+        if tool.name not in self._by_category[tool.category]:
+            self._by_category[tool.category].append(tool.name)
 
         debug(f"Registered tool: {tool.name}",
               category=tool.category.value,

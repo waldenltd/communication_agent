@@ -21,6 +21,7 @@ from .persona.base import AgentPersona, TaskDecomposition
 from .tools.registry import ToolRegistry
 from .tools.base import ToolResult
 from .context_manager import SessionState, ContextLedger, ReasoningStep
+from .metrics import AgentMetrics
 
 
 @dataclass
@@ -50,11 +51,13 @@ class ReActEngine:
         tool_registry: ToolRegistry,
         max_iterations: int = 20,
         temperature: float = 0.3,
+        metrics: AgentMetrics = None,
     ):
         self.persona = persona
         self.tools = tool_registry
         self.max_iterations = max_iterations
         self.temperature = temperature
+        self.metrics = metrics
 
         # Initialize LLM client
         if not DEEPSEEK_API_KEY:
@@ -72,7 +75,7 @@ class ReActEngine:
         ledger: ContextLedger,
         tenant_id: str,
         initial_checklist: list[str] = None,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, str, int]:
         """
         Run the ReAct loop until goal is achieved or max iterations reached.
 
@@ -84,7 +87,7 @@ class ReActEngine:
             initial_checklist: Optional pre-defined checklist
 
         Returns:
-            Tuple of (success: bool, summary: str)
+            Tuple of (success: bool, summary: str, iterations: int)
         """
         # Initialize or resume checklist
         if initial_checklist and not session.checklist:
@@ -100,6 +103,10 @@ class ReActEngine:
 
         while session.iteration_count < self.max_iterations:
             session.iteration_count += 1
+
+            # Track reasoning iterations
+            if self.metrics:
+                self.metrics.reasoning_iterations_total.inc()
 
             # Build the prompt with current context
             system_prompt = self._build_system_prompt(session, ledger)
@@ -133,7 +140,7 @@ class ReActEngine:
                 ledger.add_step(step)
                 ledger.context_summary = self._generate_summary(session, ledger, "completed")
                 info(f"Goal achieved after {session.iteration_count} iterations")
-                return True, ledger.context_summary
+                return True, ledger.context_summary, session.iteration_count
 
             # Check for human handoff
             if response.needs_human:
@@ -141,7 +148,7 @@ class ReActEngine:
                 ledger.add_step(step)
                 ledger.context_summary = self._generate_summary(session, ledger, "waiting_human")
                 info(f"Requesting human assistance", prompt=response.human_prompt)
-                return False, response.human_prompt
+                return False, response.human_prompt, session.iteration_count
 
             # Update checklist if provided
             if response.checklist_update:
@@ -176,12 +183,12 @@ class ReActEngine:
             if session.is_complete():
                 ledger.context_summary = self._generate_summary(session, ledger, "completed")
                 info(f"Checklist complete after {session.iteration_count} iterations")
-                return True, ledger.context_summary
+                return True, ledger.context_summary, session.iteration_count
 
         # Max iterations reached
         ledger.context_summary = self._generate_summary(session, ledger, "max_iterations")
         warn(f"Max iterations reached", iterations=self.max_iterations)
-        return False, f"Max iterations ({self.max_iterations}) reached. {ledger.context_summary}"
+        return False, f"Max iterations ({self.max_iterations}) reached. {ledger.context_summary}", session.iteration_count
 
     def _decompose_goal(self, goal: str) -> list[str]:
         """Use LLM to break down a goal into actionable steps."""
@@ -260,6 +267,11 @@ class ReActEngine:
 
     def _call_llm(self, system_prompt: str, user_prompt: str) -> AgentResponse:
         """Call the LLM and parse the response."""
+        import time as time_module
+        start_time = time_module.time()
+        success = False
+        tokens = 0
+
         try:
             response = self.client.chat.completions.create(
                 model=DEEPSEEK_MODEL,
@@ -272,6 +284,12 @@ class ReActEngine:
             )
 
             content = response.choices[0].message.content.strip()
+            success = True
+
+            # Track token usage if available
+            if hasattr(response, 'usage') and response.usage:
+                tokens = response.usage.total_tokens
+
             return self._parse_response(content)
 
         except Exception as e:
@@ -280,6 +298,11 @@ class ReActEngine:
                 thought=f"Error calling LLM: {str(e)}",
                 parse_error=str(e),
             )
+        finally:
+            if self.metrics:
+                duration = time_module.time() - start_time
+                self.metrics.llm_latency.observe(duration)
+                self.metrics.record_llm_call(success, tokens)
 
     def _parse_response(self, content: str) -> AgentResponse:
         """Parse the LLM response into structured format."""
@@ -323,6 +346,7 @@ class ReActEngine:
 
     def _execute_action(self, action: dict, tenant_id: str) -> ToolResult:
         """Execute a tool action."""
+        import time as time_module
         tool_name = action.get("tool")
         params = action.get("params", {})
 
@@ -333,13 +357,22 @@ class ReActEngine:
         # Validate and execute
         valid, err = self.tools.validate_action(action)
         if not valid:
+            if self.metrics:
+                self.metrics.record_tool_call(tool_name, success=False)
             return ToolResult(
                 success=False,
                 error=err,
                 suggested_action="Check tool parameters",
             )
 
-        return self.tools.execute(tool_name, **params)
+        start_time = time_module.time()
+        result = self.tools.execute(tool_name, **params)
+        duration = time_module.time() - start_time
+
+        if self.metrics:
+            self.metrics.record_tool_call(tool_name, result.success, duration)
+
+        return result
 
     def _generate_summary(
         self,
@@ -375,6 +408,7 @@ def create_react_engine(
     persona: AgentPersona,
     tool_registry: ToolRegistry = None,
     max_iterations: int = 20,
+    metrics: AgentMetrics = None,
 ) -> ReActEngine:
     """
     Factory function to create a ReActEngine with default configuration.
@@ -396,4 +430,5 @@ def create_react_engine(
         persona=persona,
         tool_registry=tool_registry,
         max_iterations=max_iterations,
+        metrics=metrics,
     )

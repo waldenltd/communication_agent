@@ -23,6 +23,7 @@ from .tools.perception import register_perception_tools
 from .tools.communication import register_communication_tools
 from .tools.processing import register_processing_tools
 from .tools.persistence import register_persistence_tools
+from .metrics import get_metrics
 
 
 class AgentOrchestrator:
@@ -62,6 +63,7 @@ class AgentOrchestrator:
         self._cycles_completed = 0
         self._jobs_processed = 0
         self._jobs_failed = 0
+        self._metrics = get_metrics()
 
     def _initialize_tools(self) -> ToolRegistry:
         """Initialize the tool registry with all available tools."""
@@ -129,10 +131,15 @@ class AgentOrchestrator:
             cycle_start = time.time()
 
             try:
-                self._run_cycle()
+                self._metrics.cycles_active.inc()
+                with self._metrics.time_cycle():
+                    self._run_cycle()
                 self._cycles_completed += 1
+                self._metrics.cycles_total.inc()
             except Exception as e:
                 error("Cycle failed", err=e)
+            finally:
+                self._metrics.cycles_active.dec()
 
             # Sleep until next cycle
             elapsed = time.time() - cycle_start
@@ -176,16 +183,26 @@ class AgentOrchestrator:
     def _spawn_job_worker(self, job_row: dict) -> None:
         """Spawn a worker thread for a job."""
         job_id = str(job_row["id"])
+        job_type = job_row.get("job_type", "unknown")
 
         def worker():
+            job_start = time.time()
+            self._metrics.record_job_start(job_type)
+            iterations = 0
+            success = False
+
             try:
-                self._process_job(job_row)
+                iterations = self._process_job(job_row)
                 self._jobs_processed += 1
+                success = True
             except Exception as e:
                 error(f"Job worker failed", job_id=job_id, err=e)
                 self._jobs_failed += 1
                 self.context_manager.mark_failed(job_id, str(e))
             finally:
+                job_duration = time.time() - job_start
+                self._metrics.job_duration.observe(job_duration)
+                self._metrics.record_job_complete(job_type, success, iterations)
                 with self._lock:
                     self._active_jobs.pop(job_id, None)
 
@@ -196,7 +213,7 @@ class AgentOrchestrator:
 
         thread.start()
 
-    def _process_job(self, job_row: dict) -> None:
+    def _process_job(self, job_row: dict) -> int:
         """
         Process a single agent job through the ReAct loop.
 
@@ -204,6 +221,9 @@ class AgentOrchestrator:
         1. HYDRATE - Load context from persistence
         2. PERCEIVE/PLAN/EXECUTE - Run ReAct engine
         3. PERSIST - Save state for next cycle
+
+        Returns:
+            Number of reasoning iterations executed
         """
         job_id = str(job_row["id"])
         tenant_id = job_row["tenant_id"]
@@ -222,19 +242,21 @@ class AgentOrchestrator:
         # Select persona
         persona = self.personas.get(job_type, self.personas["communication"])
 
-        # Create engine
+        # Create engine with metrics
         engine = create_react_engine(
             persona=persona,
             tool_registry=self.tool_registry,
             max_iterations=max_iterations,
+            metrics=self._metrics,
         )
 
         # Phase 2-6: Run ReAct Loop
         cycle_start = time.time()
         max_cycle_time = self.cycle_duration * 0.8  # Leave 20% buffer
+        iterations = 0
 
         try:
-            success, result = engine.run(
+            success, result, iterations = engine.run(
                 goal=goal,
                 session=session,
                 ledger=ledger,
@@ -251,7 +273,8 @@ class AgentOrchestrator:
                 self.context_manager.mark_complete(job_id, result)
                 info(f"Agent job completed",
                      job_id=job_id,
-                     elapsed_seconds=round(elapsed, 2))
+                     elapsed_seconds=round(elapsed, 2),
+                     iterations=iterations)
             else:
                 # Check if we need to reschedule or wait for human
                 if "human" in result.lower():
@@ -281,6 +304,8 @@ class AgentOrchestrator:
                 delay_seconds=600,  # 10 minutes
                 ledger=ledger,
             )
+
+        return iterations
 
     def create_agent_job(
         self,
@@ -327,6 +352,14 @@ class AgentOrchestrator:
             "jobs_failed": self._jobs_failed,
             "cycle_duration_seconds": self.cycle_duration,
         }
+
+    def get_metrics_summary(self) -> dict:
+        """Get detailed metrics summary."""
+        return self._metrics.get_summary()
+
+    def get_prometheus_metrics(self) -> str:
+        """Get metrics in Prometheus text format."""
+        return self._metrics.to_prometheus_format()
 
 
 # Global orchestrator instance

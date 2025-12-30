@@ -47,8 +47,15 @@ def stop_orchestrator():
     _stop()
 
 
+def get_metrics():
+    """Get the global metrics instance."""
+    from .metrics import get_metrics as _get
+    return _get()
+
+
 __all__ = [
     'get_orchestrator',
     'start_orchestrator',
     'stop_orchestrator',
+    'get_metrics',
 ]

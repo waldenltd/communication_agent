@@ -292,6 +292,85 @@ def test_tool_execution():
     return True
 
 
+def test_metrics():
+    """Test that the metrics module works correctly."""
+    print("\n" + "="*50)
+    print("Testing Agent Metrics")
+    print("="*50)
+
+    from src.agent.metrics import AgentMetrics, Counter, Gauge, Histogram, Timer, reset_metrics
+
+    # Reset metrics for clean test
+    reset_metrics()
+
+    # Test Counter
+    counter = Counter("test_counter", "A test counter")
+    counter.inc()
+    counter.inc(5)
+    assert counter.get() == 6
+    print("✓ Counter increment works")
+
+    # Test counter with labels
+    counter.inc(1, tool="send_email")
+    counter.inc(2, tool="send_sms")
+    assert counter.get(tool="send_email") == 1
+    assert counter.get(tool="send_sms") == 2
+    print("✓ Counter with labels works")
+
+    # Test Gauge
+    gauge = Gauge("test_gauge", "A test gauge")
+    gauge.set(10)
+    assert gauge.get() == 10
+    gauge.inc(5)
+    assert gauge.get() == 15
+    gauge.dec(3)
+    assert gauge.get() == 12
+    print("✓ Gauge operations work")
+
+    # Test Histogram
+    histogram = Histogram("test_histogram", "A test histogram", buckets=(0.1, 0.5, 1.0))
+    histogram.observe(0.05)  # Goes in 0.1 bucket
+    histogram.observe(0.3)   # Goes in 0.5 bucket
+    histogram.observe(0.8)   # Goes in 1.0 bucket
+    histogram.observe(2.0)   # Goes in inf bucket
+
+    stats = histogram.get_stats()
+    assert stats["count"] == 4
+    assert stats["sum"] == 3.15
+    print("✓ Histogram observations work")
+
+    # Test AgentMetrics
+    metrics = AgentMetrics()
+    metrics.cycles_total.inc()
+    metrics.jobs_total.inc(job_type="communication")
+    metrics.record_tool_call("send_email", success=True, duration=0.5)
+    metrics.record_tool_call("send_email", success=False, duration=0.1)
+    metrics.record_llm_call(success=True, tokens=100)
+
+    assert metrics.cycles_total.get() == 1
+    assert metrics.tool_calls_total.get(tool="send_email") == 2
+    assert metrics.tool_errors_total.get(tool="send_email") == 1
+    assert metrics.llm_tokens_total.get() == 100
+    print("✓ AgentMetrics tracking works")
+
+    # Test metrics summary
+    summary = metrics.get_summary()
+    assert "orchestrator" in summary
+    assert "jobs" in summary
+    assert "tools" in summary
+    assert "llm" in summary
+    print("✓ Metrics summary generation works")
+
+    # Test Prometheus export
+    prom_output = metrics.to_prometheus_format()
+    assert "agent_cycles_total" in prom_output
+    assert "agent_llm_calls_total" in prom_output
+    print("✓ Prometheus format export works")
+
+    print("\n✓ Agent Metrics tests passed!")
+    return True
+
+
 def test_orchestrator_init():
     """Test that the orchestrator initializes correctly."""
     print("\n" + "="*50)
@@ -344,6 +423,7 @@ def main():
         ("Context Manager", test_context_manager),
         ("Database Operations", test_database_operations),
         ("Tool Execution", test_tool_execution),
+        ("Agent Metrics", test_metrics),
         ("Orchestrator Init", test_orchestrator_init),
     ]
 
