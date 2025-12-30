@@ -147,3 +147,39 @@ def insert_job(tenant_id, job_type, payload, process_after=None, status='pending
     )
 
     return True
+
+
+def create_job(tenant_id, job_type, payload, process_after=None, status='pending', source_reference=None):
+    """
+    Create a new job and return its ID.
+
+    Similar to insert_job but returns the created job's ID.
+    """
+    enriched_payload = dict(payload)
+
+    reference = source_reference or payload.get('source_reference')
+    if reference:
+        enriched_payload['source_reference'] = reference
+
+    if reference and job_exists_for_reference(tenant_id, job_type, reference):
+        return None
+
+    process_after_value = process_after if process_after else datetime.now()
+
+    rows = query(
+        """
+        INSERT INTO communication_jobs
+          (tenant_id, job_type, payload, status, retry_count, created_at, process_after)
+        VALUES (%s, %s, %s, %s, 0, NOW(), %s)
+        RETURNING id
+        """,
+        [
+            tenant_id,
+            job_type,
+            json.dumps(enriched_payload),
+            status,
+            process_after_value
+        ]
+    )
+
+    return rows[0]['id'] if rows else None
