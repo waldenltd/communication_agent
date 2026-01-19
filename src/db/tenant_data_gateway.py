@@ -60,6 +60,15 @@ def get_tenant_config(tenant_id):
 
         # Company Info
         'company_name': settings.get('company_name'),
+        'company_phone': settings.get('company_phone'),
+        'default_signature': settings.get('default_signature'),
+
+        # Gmail Configuration (for contact form auto-responses)
+        'gmail_enabled': settings.get('gmail_enabled', False),
+        'gmail_client_id': settings.get('gmail_client_id'),
+        'gmail_client_secret': settings.get('gmail_client_secret'),
+        'gmail_refresh_token': settings.get('gmail_refresh_token'),
+        'gmail_contact_form_sender': settings.get('gmail_contact_form_sender'),
 
         # DMS Connection (from settings or construct from DB credentials)
         'dms_connection_string': settings.get('dms_connection_string') or _build_dms_connection(settings)
@@ -220,6 +229,303 @@ def fetch_work_order_equipment(tenant_id, work_order_number):
     """
     rows = query_tenant_db(tenant_id, query_text, [work_order_number])
     return rows[0] if rows else None
+
+
+def find_seven_day_checkin_candidates(tenant_id):
+    """
+    Find equipment sold exactly 7 days ago for check-in emails.
+
+    Returns customers with equipment purchased 7 days ago who have email addresses.
+    """
+    query_text = """
+        SELECT e.equipment_id,
+               e.customer_id,
+               e.equipment_type,
+               e.equipment_make,
+               e.equipment_model,
+               e.equipment_serial_number,
+               e.date_sold,
+               c.first_name,
+               c.last_name,
+               c.email_address
+        FROM equipment e
+        INNER JOIN customers c ON c.customer_id = e.customer_id
+        WHERE e.date_sold = CURRENT_DATE - INTERVAL '7 days'
+          AND c.email_address IS NOT NULL
+          AND c.email_address != ''
+    """
+    return query_tenant_db(tenant_id, query_text)
+
+
+def find_post_service_survey_candidates(tenant_id):
+    """
+    Find work orders picked up 48-72 hours ago for post-service surveys.
+
+    Uses detailed_status = 'Picked Up' with last_status_change_at since
+    picked_up_at column may not be populated.
+    """
+    query_text = """
+        SELECT wo.service_record_id,
+               wo.work_order_number,
+               wo.customer_id,
+               wo.equipment_id,
+               wo.last_status_change_at AS picked_up_at,
+               wo.equipment_make,
+               wo.equipment_model,
+               c.first_name,
+               c.last_name,
+               c.email_address
+        FROM work_orders wo
+        INNER JOIN customers c ON c.customer_id = wo.customer_id
+        WHERE wo.detailed_status = 'Picked Up'
+          AND wo.last_status_change_at >= NOW() - INTERVAL '72 hours'
+          AND wo.last_status_change_at <= NOW() - INTERVAL '48 hours'
+          AND c.email_address IS NOT NULL
+          AND c.email_address != ''
+    """
+    return query_tenant_db(tenant_id, query_text)
+
+
+def find_annual_tuneup_candidates(tenant_id):
+    """
+    Find equipment with purchase anniversary in 14 days.
+
+    Returns equipment where the month/day of date_sold matches 14 days from now,
+    and the equipment is at least 1 year old.
+    """
+    query_text = """
+        SELECT e.equipment_id,
+               e.customer_id,
+               e.equipment_type,
+               e.equipment_make,
+               e.equipment_model,
+               e.date_sold,
+               EXTRACT(YEAR FROM AGE(e.date_sold))::integer AS years_owned,
+               c.first_name,
+               c.last_name,
+               c.email_address
+        FROM equipment e
+        INNER JOIN customers c ON c.customer_id = e.customer_id
+        WHERE DATE_PART('month', e.date_sold) = DATE_PART('month', CURRENT_DATE + INTERVAL '14 days')
+          AND DATE_PART('day', e.date_sold) = DATE_PART('day', CURRENT_DATE + INTERVAL '14 days')
+          AND e.date_sold < CURRENT_DATE - INTERVAL '1 year'
+          AND c.email_address IS NOT NULL
+          AND c.email_address != ''
+    """
+    return query_tenant_db(tenant_id, query_text)
+
+
+def find_seasonal_reminder_candidates(tenant_id):
+    """
+    Find all customers with equipment for seasonal reminders.
+
+    Returns distinct customers who own equipment and have email addresses.
+    Used for spring and fall seasonal campaigns.
+    """
+    query_text = """
+        SELECT DISTINCT ON (c.customer_id)
+               c.customer_id,
+               c.first_name,
+               c.last_name,
+               c.email_address,
+               e.equipment_type,
+               e.equipment_make,
+               e.equipment_model
+        FROM customers c
+        INNER JOIN equipment e ON e.customer_id = c.customer_id
+        WHERE c.email_address IS NOT NULL
+          AND c.email_address != ''
+        ORDER BY c.customer_id, e.created_at DESC
+    """
+    return query_tenant_db(tenant_id, query_text)
+
+
+def find_ghost_customers(tenant_id, months=12):
+    """
+    Find customers with no activity in the specified number of months.
+
+    Returns customers who have made purchases before but haven't had
+    any work orders in the specified time period.
+    """
+    query_text = """
+        SELECT c.customer_id,
+               c.first_name,
+               c.last_name,
+               c.email_address,
+               c.last_order_date,
+               c.total_orders,
+               c.lifetime_value
+        FROM customers c
+        WHERE c.last_order_date < NOW() - INTERVAL '%s months'
+          AND c.total_orders > 0
+          AND c.email_address IS NOT NULL
+          AND c.email_address != ''
+        ORDER BY c.lifetime_value DESC
+    """
+    return query_tenant_db(tenant_id, query_text, [months])
+
+
+def find_anniversary_offer_candidates(tenant_id):
+    """
+    Find equipment with purchase anniversary in 7 days.
+
+    Similar to annual tuneup but used for anniversary offers/celebrations.
+    """
+    query_text = """
+        SELECT e.equipment_id,
+               e.customer_id,
+               e.equipment_type,
+               e.equipment_make,
+               e.equipment_model,
+               e.date_sold,
+               EXTRACT(YEAR FROM AGE(e.date_sold))::integer AS years_owned,
+               c.first_name,
+               c.last_name,
+               c.email_address
+        FROM equipment e
+        INNER JOIN customers c ON c.customer_id = e.customer_id
+        WHERE DATE_PART('month', e.date_sold) = DATE_PART('month', CURRENT_DATE + INTERVAL '7 days')
+          AND DATE_PART('day', e.date_sold) = DATE_PART('day', CURRENT_DATE + INTERVAL '7 days')
+          AND e.date_sold < CURRENT_DATE - INTERVAL '1 year'
+          AND c.email_address IS NOT NULL
+          AND c.email_address != ''
+    """
+    return query_tenant_db(tenant_id, query_text)
+
+
+def find_first_service_candidates(tenant_id, hours_threshold=20):
+    """
+    Find equipment that has reached first service hours threshold.
+
+    Returns equipment where machine_hours >= threshold and no first service
+    has been performed (last_service_date is null or before date_sold).
+    """
+    query_text = """
+        SELECT e.equipment_id,
+               e.customer_id,
+               e.equipment_type,
+               e.equipment_make,
+               e.equipment_model,
+               e.machine_hours,
+               e.date_sold,
+               c.first_name,
+               c.last_name,
+               c.email_address
+        FROM equipment e
+        INNER JOIN customers c ON c.customer_id = e.customer_id
+        WHERE e.machine_hours >= %s
+          AND (e.last_service_date IS NULL OR e.last_service_date <= e.date_sold)
+          AND c.email_address IS NOT NULL
+          AND c.email_address != ''
+    """
+    return query_tenant_db(tenant_id, query_text, [hours_threshold])
+
+
+def find_usage_service_candidates(tenant_id, hours_interval=100):
+    """
+    Find equipment due for service based on usage hours.
+
+    Returns equipment where machine_hours has crossed a service interval
+    threshold since last service.
+    """
+    query_text = """
+        SELECT e.equipment_id,
+               e.customer_id,
+               e.equipment_type,
+               e.equipment_make,
+               e.equipment_model,
+               e.machine_hours,
+               e.last_service_hours,
+               e.last_service_date,
+               c.first_name,
+               c.last_name,
+               c.email_address
+        FROM equipment e
+        INNER JOIN customers c ON c.customer_id = e.customer_id
+        WHERE e.machine_hours >= COALESCE(e.last_service_hours, 0) + %s
+          AND c.email_address IS NOT NULL
+          AND c.email_address != ''
+    """
+    return query_tenant_db(tenant_id, query_text, [hours_interval])
+
+
+def find_customer_primary_phone(tenant_id, customer_id):
+    """
+    Find the primary mobile phone for a customer (for SMS).
+
+    Returns the most recent Cell or Mobile phone number.
+    """
+    query_text = """
+        SELECT phone_number, phone_type
+        FROM phones
+        WHERE customer_id = %s
+          AND phone_type IN ('Cell', 'Mobile')
+        ORDER BY created_at DESC
+        LIMIT 1
+    """
+    rows = query_tenant_db(tenant_id, query_text, [customer_id])
+    return rows[0] if rows else None
+
+
+def find_warranty_expiration_candidates(tenant_id, days_until_expiration=30):
+    """
+    Find equipment with warranty expiring within N days.
+
+    Returns equipment where warranty_end_date is within the specified window.
+    """
+    query_text = """
+        SELECT e.equipment_id,
+               e.customer_id,
+               e.equipment_type,
+               e.equipment_make,
+               e.equipment_model,
+               e.warranty_end_date,
+               e.date_sold,
+               c.first_name,
+               c.last_name,
+               c.email_address
+        FROM equipment e
+        INNER JOIN customers c ON c.customer_id = e.customer_id
+        WHERE e.warranty_end_date IS NOT NULL
+          AND e.warranty_end_date > CURRENT_DATE
+          AND e.warranty_end_date <= CURRENT_DATE + INTERVAL '%s days'
+          AND c.email_address IS NOT NULL
+          AND c.email_address != ''
+    """
+    return query_tenant_db(tenant_id, query_text, [days_until_expiration])
+
+
+def find_trade_in_candidates(tenant_id, min_age_years=8, min_repair_count=3):
+    """
+    Find equipment that may be good candidates for trade-in.
+
+    Returns equipment that is old (8+ years) and has high repair history.
+    """
+    query_text = """
+        SELECT e.equipment_id,
+               e.customer_id,
+               e.equipment_type,
+               e.equipment_make,
+               e.equipment_model,
+               e.date_sold,
+               EXTRACT(YEAR FROM AGE(e.date_sold))::integer AS years_owned,
+               COUNT(wo.service_record_id) AS repair_count,
+               c.first_name,
+               c.last_name,
+               c.email_address
+        FROM equipment e
+        INNER JOIN customers c ON c.customer_id = e.customer_id
+        LEFT JOIN work_orders wo ON wo.equipment_id = e.equipment_id
+        WHERE e.date_sold <= CURRENT_DATE - INTERVAL '%s years'
+          AND c.email_address IS NOT NULL
+          AND c.email_address != ''
+        GROUP BY e.equipment_id, e.customer_id, e.equipment_type,
+                 e.equipment_make, e.equipment_model, e.date_sold,
+                 c.first_name, c.last_name, c.email_address
+        HAVING COUNT(wo.service_record_id) >= %s
+        ORDER BY COUNT(wo.service_record_id) DESC
+    """
+    return query_tenant_db(tenant_id, query_text, [min_age_years, min_repair_count])
 
 
 def shutdown_tenant_pools():

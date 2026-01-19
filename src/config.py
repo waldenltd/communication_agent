@@ -51,10 +51,40 @@ SCHEDULER_CONFIG = {
     'queue_processor_interval_ms': _number_from_env(
         'QUEUE_PROCESSOR_INTERVAL_MS',
         30 * 1000  # 30 seconds
-    )
+    ),
+    # New communication job intervals
+    'daily_job_interval_ms': _number_from_env(
+        'DAILY_JOB_INTERVAL_MS',
+        24 * 60 * 60 * 1000  # 24 hours
+    ),
+    'weekly_job_interval_ms': _number_from_env(
+        'WEEKLY_JOB_INTERVAL_MS',
+        7 * 24 * 60 * 60 * 1000  # 7 days
+    ),
+    # Ghost customer inactivity threshold
+    'ghost_customer_months': _number_from_env('GHOST_CUSTOMER_MONTHS', 12),
+    # Monthly job interval (30 days)
+    'monthly_job_interval_ms': _number_from_env(
+        'MONTHLY_JOB_INTERVAL_MS',
+        30 * 24 * 60 * 60 * 1000  # 30 days
+    ),
+    # Warranty expiration warning threshold (days before expiration)
+    'warranty_warning_days': _number_from_env('WARRANTY_WARNING_DAYS', 30),
+    # Trade-in alert thresholds
+    'trade_in_min_age_years': _number_from_env('TRADE_IN_MIN_AGE_YEARS', 8),
+    'trade_in_min_repair_count': _number_from_env('TRADE_IN_MIN_REPAIR_COUNT', 3),
+    # Usage-based service alert thresholds
+    'first_service_hours_threshold': _number_from_env('FIRST_SERVICE_HOURS_THRESHOLD', 20),
+    'usage_service_hours_interval': _number_from_env('USAGE_SERVICE_HOURS_INTERVAL', 100),
 }
 
 # DeepSeek AI Configuration (OpenAI-compatible API)
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
 DEEPSEEK_BASE_URL = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
 DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
+
+# Gmail Polling Configuration
+GMAIL_POLL_INTERVAL_MS = _number_from_env('GMAIL_POLL_INTERVAL_MS', 60000)  # 1 minute
+GMAIL_MAX_MESSAGES_PER_POLL = _number_from_env('GMAIL_MAX_MESSAGES_PER_POLL', 10)
+GMAIL_PROCESSED_LABEL = os.getenv('GMAIL_PROCESSED_LABEL', 'yrp/processed')
+GMAIL_CONTACT_FORM_SUBJECT_FILTER = os.getenv('GMAIL_CONTACT_FORM_SUBJECT_FILTER', 'Contact')

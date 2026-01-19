@@ -7,10 +7,22 @@ from src.db.central_db import query
 from src.db.tenant_data_gateway import (
     find_service_reminder_candidates,
     find_appointments_within_window,
-    find_past_due_invoices
+    find_past_due_invoices,
+    get_tenant_config
 )
 from src.jobs.job_repository import insert_job
 from src.jobs.handlers.process_queue import process_communication_queue
+from src.jobs.handlers.poll_gmail_inbox import poll_gmail_inbox
+from src.jobs.handlers.seven_day_checkin import create_seven_day_checkin_jobs
+from src.jobs.handlers.post_service_survey import create_post_service_survey_jobs
+from src.jobs.handlers.annual_tuneup import create_annual_tuneup_jobs
+from src.jobs.handlers.seasonal_reminder import create_spring_reminder_jobs, create_fall_reminder_jobs
+from src.jobs.handlers.ghost_customer import create_ghost_customer_jobs
+from src.jobs.handlers.anniversary_offer import create_anniversary_offer_jobs
+from src.jobs.handlers.warranty_expiration import create_warranty_expiration_jobs
+from src.jobs.handlers.trade_in_alert import create_trade_in_alert_jobs
+from src.jobs.handlers.first_service_alert import create_first_service_alert_jobs
+from src.jobs.handlers.usage_service_alert import create_usage_service_alert_jobs
 
 
 class Scheduler:
@@ -44,6 +56,84 @@ class Scheduler:
             'communication-queue-processor',
             config.SCHEDULER_CONFIG.get('queue_processor_interval_ms', 30000),  # 30 seconds default
             self.run_queue_processor
+        )
+
+        # Gmail inbox polling for contact form auto-responses
+        gmail_interval = getattr(config, 'GMAIL_POLL_INTERVAL_MS', 60000)
+        if gmail_interval > 0:
+            self.schedule_recurring_task(
+                'gmail-inbox-poller',
+                gmail_interval,
+                self.run_gmail_inbox_poll
+            )
+
+        # New communication jobs - daily scheduled tasks
+        # These run once per day (24 hours = 86400000 ms)
+        daily_interval = config.SCHEDULER_CONFIG.get('daily_job_interval_ms', 86400000)
+
+        self.schedule_recurring_task(
+            'seven-day-checkin',
+            daily_interval,
+            self.run_seven_day_checkin
+        )
+        self.schedule_recurring_task(
+            'post-service-survey',
+            daily_interval,
+            self.run_post_service_survey
+        )
+        self.schedule_recurring_task(
+            'annual-tuneup',
+            daily_interval,
+            self.run_annual_tuneup
+        )
+
+        # Ghost customer detection - weekly (7 days = 604800000 ms)
+        weekly_interval = config.SCHEDULER_CONFIG.get('weekly_job_interval_ms', 604800000)
+        self.schedule_recurring_task(
+            'ghost-customer-winback',
+            weekly_interval,
+            self.run_ghost_customer_winback
+        )
+
+        # Seasonal reminders - check daily but only create jobs in March/October
+        self.schedule_recurring_task(
+            'seasonal-reminders',
+            daily_interval,
+            self.run_seasonal_reminders
+        )
+
+        # Anniversary offers - daily
+        self.schedule_recurring_task(
+            'anniversary-offer',
+            daily_interval,
+            self.run_anniversary_offer
+        )
+
+        # Warranty expiration warnings - daily
+        self.schedule_recurring_task(
+            'warranty-expiration',
+            daily_interval,
+            self.run_warranty_expiration
+        )
+
+        # Trade-in alerts - monthly (30 days)
+        monthly_interval = config.SCHEDULER_CONFIG.get('monthly_job_interval_ms', 30 * 24 * 60 * 60 * 1000)
+        self.schedule_recurring_task(
+            'trade-in-alert',
+            monthly_interval,
+            self.run_trade_in_alert
+        )
+
+        # Usage-based service alerts - weekly (check for equipment needing service)
+        self.schedule_recurring_task(
+            'first-service-alert',
+            weekly_interval,
+            self.run_first_service_alert
+        )
+        self.schedule_recurring_task(
+            'usage-service-alert',
+            weekly_interval,
+            self.run_usage_service_alert
         )
 
     def stop(self):
@@ -195,3 +285,187 @@ class Scheduler:
 
         if total_processed > 0:
             logger.info('Communication queue processing completed', processed=total_processed)
+
+    def run_gmail_inbox_poll(self):
+        """Poll Gmail inbox for contact form emails and create auto-response jobs."""
+        tenants = self.fetch_tenants()
+        total_processed = 0
+
+        for tenant_id in tenants:
+            try:
+                tenant_config = get_tenant_config(tenant_id)
+                if not tenant_config.get('gmail_enabled'):
+                    continue
+
+                processed = poll_gmail_inbox(tenant_id, tenant_config)
+                total_processed += processed
+            except Exception as e:
+                logger.error(f'Gmail poll failed for tenant {tenant_id}', err=e)
+
+        if total_processed > 0:
+            logger.info('Gmail inbox poll completed', processed=total_processed)
+
+    def run_seven_day_checkin(self):
+        """Send check-in emails to customers 7 days after equipment purchase."""
+        tenants = self.fetch_tenants()
+        total_jobs = 0
+
+        for tenant_id in tenants:
+            try:
+                jobs_created = create_seven_day_checkin_jobs(tenant_id)
+                total_jobs += jobs_created
+            except Exception as e:
+                logger.error(f'Seven day check-in failed for tenant {tenant_id}', err=e)
+
+        if total_jobs > 0:
+            logger.info('Seven day check-in sweep completed', jobs_created=total_jobs)
+
+    def run_post_service_survey(self):
+        """Send survey emails to customers 48-72 hours after service pickup."""
+        tenants = self.fetch_tenants()
+        total_jobs = 0
+
+        for tenant_id in tenants:
+            try:
+                jobs_created = create_post_service_survey_jobs(tenant_id)
+                total_jobs += jobs_created
+            except Exception as e:
+                logger.error(f'Post-service survey failed for tenant {tenant_id}', err=e)
+
+        if total_jobs > 0:
+            logger.info('Post-service survey sweep completed', jobs_created=total_jobs)
+
+    def run_annual_tuneup(self):
+        """Send tune-up reminders 14 days before equipment purchase anniversary."""
+        tenants = self.fetch_tenants()
+        total_jobs = 0
+
+        for tenant_id in tenants:
+            try:
+                jobs_created = create_annual_tuneup_jobs(tenant_id)
+                total_jobs += jobs_created
+            except Exception as e:
+                logger.error(f'Annual tune-up reminder failed for tenant {tenant_id}', err=e)
+
+        if total_jobs > 0:
+            logger.info('Annual tune-up sweep completed', jobs_created=total_jobs)
+
+    def run_ghost_customer_winback(self):
+        """Send win-back emails to customers with no activity in 12+ months."""
+        tenants = self.fetch_tenants()
+        total_jobs = 0
+
+        for tenant_id in tenants:
+            try:
+                jobs_created = create_ghost_customer_jobs(tenant_id)
+                total_jobs += jobs_created
+            except Exception as e:
+                logger.error(f'Ghost customer win-back failed for tenant {tenant_id}', err=e)
+
+        if total_jobs > 0:
+            logger.info('Ghost customer win-back sweep completed', jobs_created=total_jobs)
+
+    def run_seasonal_reminders(self):
+        """Send seasonal preparation reminders (spring in March, fall in October)."""
+        current_month = datetime.now().month
+        tenants = self.fetch_tenants()
+        total_jobs = 0
+
+        # Spring reminders in March
+        if current_month == 3:
+            for tenant_id in tenants:
+                try:
+                    jobs_created = create_spring_reminder_jobs(tenant_id)
+                    total_jobs += jobs_created
+                except Exception as e:
+                    logger.error(f'Spring reminder failed for tenant {tenant_id}', err=e)
+
+            if total_jobs > 0:
+                logger.info('Spring reminder sweep completed', jobs_created=total_jobs)
+
+        # Fall/winterization reminders in October
+        elif current_month == 10:
+            for tenant_id in tenants:
+                try:
+                    jobs_created = create_fall_reminder_jobs(tenant_id)
+                    total_jobs += jobs_created
+                except Exception as e:
+                    logger.error(f'Fall reminder failed for tenant {tenant_id}', err=e)
+
+            if total_jobs > 0:
+                logger.info('Fall reminder sweep completed', jobs_created=total_jobs)
+
+    def run_anniversary_offer(self):
+        """Send anniversary offer emails 7 days before equipment purchase anniversary."""
+        tenants = self.fetch_tenants()
+        total_jobs = 0
+
+        for tenant_id in tenants:
+            try:
+                jobs_created = create_anniversary_offer_jobs(tenant_id)
+                total_jobs += jobs_created
+            except Exception as e:
+                logger.error(f'Anniversary offer failed for tenant {tenant_id}', err=e)
+
+        if total_jobs > 0:
+            logger.info('Anniversary offer sweep completed', jobs_created=total_jobs)
+
+    def run_warranty_expiration(self):
+        """Send warranty expiration warnings 30 days before warranty expires."""
+        tenants = self.fetch_tenants()
+        total_jobs = 0
+
+        for tenant_id in tenants:
+            try:
+                jobs_created = create_warranty_expiration_jobs(tenant_id)
+                total_jobs += jobs_created
+            except Exception as e:
+                logger.error(f'Warranty expiration failed for tenant {tenant_id}', err=e)
+
+        if total_jobs > 0:
+            logger.info('Warranty expiration sweep completed', jobs_created=total_jobs)
+
+    def run_trade_in_alert(self):
+        """Send trade-in suggestions for old equipment with high repair history."""
+        tenants = self.fetch_tenants()
+        total_jobs = 0
+
+        for tenant_id in tenants:
+            try:
+                jobs_created = create_trade_in_alert_jobs(tenant_id)
+                total_jobs += jobs_created
+            except Exception as e:
+                logger.error(f'Trade-in alert failed for tenant {tenant_id}', err=e)
+
+        if total_jobs > 0:
+            logger.info('Trade-in alert sweep completed', jobs_created=total_jobs)
+
+    def run_first_service_alert(self):
+        """Send first service alerts when equipment reaches first service hours threshold."""
+        tenants = self.fetch_tenants()
+        total_jobs = 0
+
+        for tenant_id in tenants:
+            try:
+                jobs_created = create_first_service_alert_jobs(tenant_id)
+                total_jobs += jobs_created
+            except Exception as e:
+                logger.error(f'First service alert failed for tenant {tenant_id}', err=e)
+
+        if total_jobs > 0:
+            logger.info('First service alert sweep completed', jobs_created=total_jobs)
+
+    def run_usage_service_alert(self):
+        """Send usage-based service alerts when equipment crosses service interval thresholds."""
+        tenants = self.fetch_tenants()
+        total_jobs = 0
+
+        for tenant_id in tenants:
+            try:
+                jobs_created = create_usage_service_alert_jobs(tenant_id)
+                total_jobs += jobs_created
+            except Exception as e:
+                logger.error(f'Usage service alert failed for tenant {tenant_id}', err=e)
+
+        if total_jobs > 0:
+            logger.info('Usage service alert sweep completed', jobs_created=total_jobs)

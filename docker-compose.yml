@@ -1,0 +1,76 @@
+# Docker Compose for local development
+# Usage: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # Communication Agent
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: communication-agent
+    restart: unless-stopped
+    environment:
+      # Database connection
+      CENTRAL_DB_URL: postgres://dms_agent:${DB_PASSWORD:-secret}@postgres:5432/dms_communications
+
+      # Agent mode: legacy, level2, or hybrid
+      AGENT_MODE: ${AGENT_MODE:-legacy}
+
+      # Health server
+      HEALTH_PORT: 8080
+
+      # API Keys (set in .env file)
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+
+      # Gmail polling (optional)
+      GMAIL_POLL_INTERVAL_MS: ${GMAIL_POLL_INTERVAL_MS:-60000}
+
+      # Job intervals
+      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-5000}
+      QUEUE_PROCESSOR_INTERVAL_MS: ${QUEUE_PROCESSOR_INTERVAL_MS:-30000}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - agent-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # PostgreSQL Database (for local development)
+  postgres:
+    image: postgres:15-alpine
+    container_name: communication-agent-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dms_agent
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+      POSTGRES_DB: dms_communications
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - agent-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dms_agent -d dms_communications"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+
+networks:
+  agent-network:
+    driver: bridge

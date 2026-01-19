@@ -98,28 +98,38 @@ def mark_job_failed(job_id, last_error, status='failed'):
 
 
 def job_exists_for_reference(tenant_id, job_type, reference):
-    """Check if a job already exists for a given source reference."""
+    """Check if a job already exists for a given source reference.
+
+    Uses the source_reference column if available (faster), falls back to
+    payload JSONB query for backwards compatibility.
+    """
     if not reference:
         return False
 
+    # Use the dedicated column (faster with unique index)
+    # Falls back to payload check for backwards compatibility
     rows = query(
         """
         SELECT 1
         FROM communication_jobs
         WHERE tenant_id = %s
           AND job_type = %s
-          AND payload ->> 'source_reference' = %s
+          AND (source_reference = %s OR payload ->> 'source_reference' = %s)
           AND status IN ('pending', 'processing', 'complete')
         LIMIT 1
         """,
-        [tenant_id, job_type, reference]
+        [tenant_id, job_type, reference, reference]
     )
 
     return len(rows) > 0
 
 
 def insert_job(tenant_id, job_type, payload, process_after=None, status='pending', source_reference=None):
-    """Insert a new job into the queue."""
+    """Insert a new job into the queue.
+
+    Stores source_reference in both a dedicated column (for fast lookups)
+    and the payload (for backwards compatibility).
+    """
     enriched_payload = dict(payload)
 
     reference = source_reference or payload.get('source_reference')
@@ -134,15 +144,16 @@ def insert_job(tenant_id, job_type, payload, process_after=None, status='pending
     query(
         """
         INSERT INTO communication_jobs
-          (tenant_id, job_type, payload, status, retry_count, created_at, process_after)
-        VALUES (%s, %s, %s, %s, 0, NOW(), %s)
+          (tenant_id, job_type, payload, status, retry_count, created_at, process_after, source_reference)
+        VALUES (%s, %s, %s, %s, 0, NOW(), %s, %s)
         """,
         [
             tenant_id,
             job_type,
             json.dumps(enriched_payload),
             status,
-            process_after_value
+            process_after_value,
+            reference
         ]
     )
 
@@ -154,6 +165,8 @@ def create_job(tenant_id, job_type, payload, process_after=None, status='pending
     Create a new job and return its ID.
 
     Similar to insert_job but returns the created job's ID.
+    Stores source_reference in both a dedicated column (for fast lookups)
+    and the payload (for backwards compatibility).
     """
     enriched_payload = dict(payload)
 
@@ -169,8 +182,8 @@ def create_job(tenant_id, job_type, payload, process_after=None, status='pending
     rows = query(
         """
         INSERT INTO communication_jobs
-          (tenant_id, job_type, payload, status, retry_count, created_at, process_after)
-        VALUES (%s, %s, %s, %s, 0, NOW(), %s)
+          (tenant_id, job_type, payload, status, retry_count, created_at, process_after, source_reference)
+        VALUES (%s, %s, %s, %s, 0, NOW(), %s, %s)
         RETURNING id
         """,
         [
@@ -178,7 +191,8 @@ def create_job(tenant_id, job_type, payload, process_after=None, status='pending
             job_type,
             json.dumps(enriched_payload),
             status,
-            process_after_value
+            process_after_value,
+            reference
         ]
     )
 
