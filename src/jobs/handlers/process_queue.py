@@ -28,16 +28,15 @@ def process_communication_queue(tenant_id: str, limit: int = 10):
     """
 
     # Fetch pending email items from the queue
-    # Match by tenant_id in message_params since queue.tenant_id is a UUID
+    # Process all pending emails - tenant validation happens during processing
     pending_items = query("""
         SELECT *
         FROM communication_queue
-        WHERE message_params->>'tenant_id' = %s
-          AND communication_type = 'email'
+        WHERE communication_type = 'email'
           AND status = 'pending'
         ORDER BY created_at ASC
         LIMIT %s
-    """, (tenant_id, limit))
+    """, (limit,))
 
     if not pending_items:
         return 0

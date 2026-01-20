@@ -374,7 +374,7 @@ def generate_from_template(
             if enhanced:
                 result['body'] = enhanced
         except Exception as e:
-            logger.warning(
+            logger.warn(
                 'AI enhancement failed, using base template',
                 event_type=event_type,
                 error=str(e)
@@ -503,7 +503,7 @@ def generate_email_content(
                     result['subject'] = subject_override
                 return result
         except Exception as e:
-            logger.warning(
+            logger.warn(
                 'Template generation failed, falling back to AI',
                 event_type=event_type,
                 error=str(e)
